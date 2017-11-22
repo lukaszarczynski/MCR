@@ -2,8 +2,10 @@ import random
 from collections import defaultdict
 from math import sqrt
 
+from tokenization import tokenize
 import morphosyntactic as morph
-from reverse_index_serialization import load_reverse_index, reverse_index_created, store_reverse_index
+from dialogue_load import load_list_of_dialogues_from_file
+from reverse_index_serialization import load_reverse_index, reverse_index_created, store_reverse_index, IndexType
 
 
 def create_reverse_index(path_to_documents_collection, morphosyntactic):
@@ -14,15 +16,30 @@ def create_reverse_index(path_to_documents_collection, morphosyntactic):
         for line_number, line in enumerate(file):
             if line.startswith("#"):
                 continue
-            line = line.split(":")[-1].split()
+            line = tokenize(line.split(":")[-1])
             for token in line:
-                base_tokens = morphosyntactic.morphosyntactic_dictionary.get(token, [])
+                base_tokens = morphosyntactic.get_dictionary().get(token, [])
                 for base_token in base_tokens:
                     index[base_token].add(line_number)
         print("+++ reverse index created +++")
         print(len(index))
     return [index, []]
 
+
+def create_dialogue_reverse_index(path_to_documents_collection, morphosyntactic):
+    index = defaultdict(lambda: set())
+
+    dialogues = load_list_of_dialogues_from_file(path_to_documents_collection,
+                                                 remove_authors=True, do_tokenization=True)
+    print("+++ creating reverse index +++")
+    for dialogue_idx, dialogue in enumerate(dialogues):
+        for token in dialogue:
+            base_tokens = morphosyntactic.get_dictionary().get(token, [])
+            for base_token in base_tokens:
+                index[base_token].add(dialogue_idx)
+    print("+++ reverse index created +++")
+    print(len(index))
+    return [index, []]
 
 # def quotes_split_exists(split_quotes_path):
 #     return os.path.isfile(split_quotes_path)
@@ -66,19 +83,17 @@ def mcr():
     # if not quotes_split_exists(quotes_path):
     #     split_quotes(collection_path, quotes_path)
 
-    if reverse_index_created(quotes_path):
-        index = load_reverse_index(quotes_path)
+    if reverse_index_created(quotes_path, IndexType.DIALOGUE):
+        index = load_reverse_index(quotes_path, IndexType.DIALOGUE)
     else:
-        index = store_reverse_index(quotes_path, create_reverse_index, [morphosyntactic])
+        index = store_reverse_index(quotes_path, create_dialogue_reverse_index, [morphosyntactic],
+                                    index_type=IndexType.DIALOGUE)
 
     with open("data/stopwords.txt") as file:
         line = file.readline()
         stopwords = line.split(", ")
 
-    quotes = []
-    with open(quotes_path, 'r', encoding='utf-8') as file:
-        for line_number, line in enumerate(file):
-            quotes.append(line)
+    quotes = load_list_of_dialogues_from_file(quotes_path, do_tokenization=False, remove_authors=False)
 
     used_quotes = [""]
     try:
@@ -87,8 +102,8 @@ def mcr():
             if len(line) > 0 and line[0].upper():
                 line = line[0].lower() + line[1:]
 
-            line = list(filter(lambda x: x not in stopwords, line.split()))
-            line = [morphosyntactic.morphosyntactic_dictionary.get(token, []) for token in line]
+            line = list(filter(lambda x: x not in stopwords, tokenize(line)))
+            line = [morphosyntactic.get_dictionary().get(token, []) for token in line]
 
             quotes_sets = []
             for base_tokens in line:
@@ -107,7 +122,10 @@ def mcr():
                     results = {k: v for k, v in results.items() if len(v) > 1}
                 possible_quotes = []
                 for result in results.keys():
-                    possible_quotes.append([quotes[result], results[result]])
+                    try:
+                        possible_quotes.append([quotes[result], results[result]])
+                    except IndexError:
+                        pass
                 for possible_quote in possible_quotes:
                     possible_quote[1] = evaluate_quote(possible_quote[0], possible_quote[1], line)
                 if randomized:

@@ -9,6 +9,7 @@ class IndexType(Enum):
     POSITIONAL_WITHOUT_LEMATIZATION = 3
     POSITIONAL_ENCODED = 4
     TITLE_4GRAM = 5
+    DIALOGUE = 6
 
 
 EXTENSIONS = {
@@ -16,7 +17,8 @@ EXTENSIONS = {
     IndexType.POSITIONAL: ".pos",
     IndexType.POSITIONAL_WITHOUT_LEMATIZATION: ".pwl",
     IndexType.POSITIONAL_ENCODED: ".enc",
-    IndexType.TITLE_4GRAM: ".4gr"
+    IndexType.TITLE_4GRAM: ".4gr",
+    IndexType.DIALOGUE: ".dlg.rvi"
 }
 
 
