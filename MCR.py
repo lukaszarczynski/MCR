@@ -2,6 +2,7 @@ import random
 from collections import defaultdict
 from math import sqrt
 
+from tf_idf import TF_IDF
 from tokenization import tokenize
 import morphosyntactic as morph
 from dialogue_load import load_list_of_dialogues_from_file
@@ -53,11 +54,25 @@ def create_dialogue_reverse_index(path_to_documents_collection, morphosyntactic)
 #                     new_file.write(quote.rstrip("\n") + "\n")
 
 
-def evaluate_quote(quote, keywords, question):
+def _evaluate_quote_old(quote, keywords, question):
     value = 1
     for keyword in keywords:
         value *= len(keywords) ** len(question[keyword][0])
     return value / sqrt(len(quote))
+
+
+def evaluate_quote(quote_idx, question, tf_idf):
+    total_score = 0
+    for possible_words in question:
+        max_word_score = 0
+        for base_word in possible_words:
+            try:
+                base_word_score = tf_idf[quote_idx][base_word]
+            except KeyError:
+                base_word_score = 0
+            max_word_score = max(max_word_score, base_word_score)
+        total_score += max_word_score
+    return total_score
 
 
 def weighted_draw(possible_quotes):
@@ -95,6 +110,11 @@ def mcr():
 
     quotes = load_list_of_dialogues_from_file(quotes_path, do_tokenization=False, remove_authors=False)
 
+    print("tf-idf started")
+    tf_idf_generator = TF_IDF(quotes_path, morphosyntactic)
+    tf_idf = tf_idf_generator.load()
+    print("tf-idf done")
+
     used_quotes = [""]
     try:
         while True:
@@ -123,11 +143,11 @@ def mcr():
                 possible_quotes = []
                 for result in results.keys():
                     try:
-                        possible_quotes.append([quotes[result], results[result]])
+                        possible_quotes.append([quotes[result], result])
                     except IndexError:
                         pass
                 for possible_quote in possible_quotes:
-                    possible_quote[1] = evaluate_quote(possible_quote[0], possible_quote[1], line)
+                    possible_quote[1] = evaluate_quote(possible_quote[1], line, tf_idf)
                 if randomized:
                     selected_quote = [""]
                     while selected_quote[0] in used_quotes:

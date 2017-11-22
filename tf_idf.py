@@ -38,6 +38,7 @@ class TF_IDF:
                 self.tf_idf = pickle.load(tfidf_file)
         else:
             self.compute()
+            self.save()
         return self.tf_idf
 
     def _increase_tf(self, term, document_idx):
