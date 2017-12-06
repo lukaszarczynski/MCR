@@ -1,11 +1,11 @@
 import random
 from collections import defaultdict
-from math import sqrt
+from typing import List, Dict, Set
 
 from tf_idf import TF_IDF
 from tokenization import tokenize
 import morphosyntactic as morph
-from dialogue_load import load_list_of_dialogues_from_file
+from dialogue_load import load_dialogues_from_file
 from reverse_index_serialization import load_reverse_index, reverse_index_created, store_reverse_index, IndexType
 
 
@@ -30,8 +30,8 @@ def create_reverse_index(path_to_documents_collection, morphosyntactic):
 def create_dialogue_reverse_index(path_to_documents_collection, morphosyntactic):
     index = defaultdict(lambda: set())
 
-    dialogues = load_list_of_dialogues_from_file(path_to_documents_collection,
-                                                 remove_authors=True, do_tokenization=True)
+    dialogues = load_dialogues_from_file(path_to_documents_collection,
+                                         remove_authors=True, do_tokenization=True)
     print("+++ creating reverse index +++")
     for dialogue_idx, dialogue in enumerate(dialogues):
         for token in dialogue:
@@ -41,38 +41,6 @@ def create_dialogue_reverse_index(path_to_documents_collection, morphosyntactic)
     print("+++ reverse index created +++")
     print(len(index))
     return [index, []]
-
-# def quotes_split_exists(split_quotes_path):
-#     return os.path.isfile(split_quotes_path)
-
-
-# def split_quotes(collection_path, split_quotes_path):
-#     with open(collection_path) as file:
-#         with open(split_quotes_path, "w") as new_file:
-#             for line in file:
-#                 for quote in line.split(" . "):
-#                     new_file.write(quote.rstrip("\n") + "\n")
-
-
-def _evaluate_quote_old(quote, keywords, question):
-    value = 1
-    for keyword in keywords:
-        value *= len(keywords) ** len(question[keyword][0])
-    return value / sqrt(len(quote))
-
-
-def evaluate_quote(quote_idx, question, tf_idf):
-    total_score = 0
-    for possible_words in question:
-        max_word_score = 0
-        for base_word in possible_words:
-            try:
-                base_word_score = tf_idf[quote_idx][base_word]
-            except KeyError:
-                base_word_score = 0
-            max_word_score = max(max_word_score, base_word_score)
-        total_score += max_word_score
-    return total_score
 
 
 def weighted_draw(possible_quotes):
@@ -85,92 +53,142 @@ def weighted_draw(possible_quotes):
         upto += w
 
 
-# collection_path = "data/tokenized_quotes.txt"
-quotes_path = "data/drama_quotes_longer.txt"
-default_quote = "Jeden rabin powie tak, a inny powie nie."
-randomized = True
+class MCR:
+    def __init__(self, *,
+                 morphosyntactic_path="data/polimorfologik-2.1.txt",
+                 quotes_path="data/drama_quotes_longer.txt",
+                 filter_rare_results=False):
+        self.morphosyntactic = morph.Morphosyntactic(morphosyntactic_path)
+        self.morphosyntactic.create_morphosyntactic_dictionary()
+        self.stopwords = MCR.load_stopwords()
+        self.index = self.load_index(quotes_path)
+        self.quotes: List[str] = load_dialogues_from_file(quotes_path, do_tokenization=False, remove_authors=False)
+        tf_idf_generator = TF_IDF(quotes_path, self.morphosyntactic)
+        self.tf_idf: Dict[int, Dict[str, float]] = tf_idf_generator.load()
+        self.filter_rare_results = filter_rare_results
 
+        self.randomized = None
+        self.default_quote = None
+        self.used_quotes: Set[str] = None
 
-def mcr():
-    morphosyntactic = morph.Morphosyntactic("data/polimorfologik-2.1.txt")
-    morphosyntactic.create_morphosyntactic_dictionary()
+    @staticmethod
+    def load_stopwords():
+        try:
+            with open("data/stopwords.txt") as file:
+                line = file.readline()
+                stopwords = line.split(", ")
+        except FileNotFoundError:
+            stopwords = ()
+        return stopwords
 
-    # if not quotes_split_exists(quotes_path):
-    #     split_quotes(collection_path, quotes_path)
+    def load_index(self, quotes_path):
+        if reverse_index_created(quotes_path, IndexType.DIALOGUE):
+            index = load_reverse_index(quotes_path, IndexType.DIALOGUE)
+        else:
+            index = store_reverse_index(quotes_path, create_dialogue_reverse_index, [self.morphosyntactic],
+                                        index_type=IndexType.DIALOGUE)
+        return index
 
-    if reverse_index_created(quotes_path, IndexType.DIALOGUE):
-        index = load_reverse_index(quotes_path, IndexType.DIALOGUE)
-    else:
-        index = store_reverse_index(quotes_path, create_dialogue_reverse_index, [morphosyntactic],
-                                    index_type=IndexType.DIALOGUE)
+    def run(self, *, randomized=True, default_quote="Jeden rabin powie tak, a inny powie nie."):
+        self.randomized = randomized
+        self.default_quote = default_quote
+        self.used_quotes = {""}
+        try:
+            while True:
+                line = self.get_tokenized_line()
+                results = self.find_matching_quotes(line)
+                selected_quote = self.select_quote(results, line)
+                self.used_quotes.add(selected_quote)
+                print(selected_quote)
+        except KeyboardInterrupt:
+            return
+        except EOFError:
+            return
 
-    with open("data/stopwords.txt") as file:
-        line = file.readline()
-        stopwords = line.split(", ")
+    def get_tokenized_line(self):
+        line = input("> ").strip()
+        if len(line) > 0 and line[0].upper():
+            line = line[0].lower() + line[1:]
 
-    quotes = load_list_of_dialogues_from_file(quotes_path, do_tokenization=False, remove_authors=False)
+        line = list(filter(lambda x: x not in self.stopwords, tokenize(line)))
+        line = [self.morphosyntactic.get_dictionary().get(token, []) for token in line]
+        return line
 
-    print("tf-idf started")
-    tf_idf_generator = TF_IDF(quotes_path, morphosyntactic)
-    tf_idf = tf_idf_generator.load()
-    print("tf-idf done")
+    def find_matching_quotes(self, line):
+        quotes_sets = []
+        for base_tokens in line:
+            quotes_indices = set()
+            for base_token in base_tokens:
+                quotes_indices.update(self.index.get(base_token, []))
+            quotes_sets.append(quotes_indices)
+        results = defaultdict(lambda: set())
+        for i, quotes_set in enumerate(quotes_sets):
+            for quote_number in quotes_set:
+                results[quote_number].add(i)
+        return results
 
-    used_quotes = [""]
-    try:
-        while True:
-            line = input("> ").strip()
-            if len(line) > 0 and line[0].upper():
-                line = line[0].lower() + line[1:]
+    def select_quote(self, results: Dict[int, Set[int]], line: List[List[str]]):
+        if len(results) == 0:
+            return self.default_quote
+        if self.filter_rare_results:
+            if any((len(k) > 1 for k in results.values())):
+                results = {k: v for k, v in results.items() if len(v) > 1}
 
-            line = list(filter(lambda x: x not in stopwords, tokenize(line)))
-            line = [morphosyntactic.get_dictionary().get(token, []) for token in line]
+        possible_quotes = self._get_quotes_from_indices(results)
+        for possible_quote in possible_quotes:
+            possible_quote[1] = self.evaluate_quote(possible_quote[1], line)[0]  # TODO: Select best quote
 
-            quotes_sets = []
-            for base_tokens in line:
-                quotes_indices = set()
-                for base_token in base_tokens:
-                    quotes_indices.update(index.get(base_token, []))
-                quotes_sets.append(quotes_indices)
-            results = defaultdict(lambda: set())
-            for i, quotes_set in enumerate(quotes_sets):
-                for quote_number in quotes_set:
-                    results[quote_number].add(i)
-            if len(results) == 0:
-                print(default_quote, "\n")
+        if self.randomized:
+            selected_quote = self._select_randomized_quote(possible_quotes)
+        else:
+            selected_quote = self._select_best_quote(possible_quotes)
+        return selected_quote
+
+    def _get_quotes_from_indices(self, results):
+        possible_quotes = []
+        for result in results.keys():
+            try:
+                possible_quotes.append([self.quotes[result], result])
+            except IndexError:
+                pass
+        return possible_quotes
+
+    def _select_randomized_quote(self, possible_quotes):
+        selected_quote = [""]
+        while selected_quote[0] in self.used_quotes:
+            if len(possible_quotes) == 0:
+                return self.default_quote
+            selected_quote = weighted_draw(possible_quotes)
+            possible_quotes.remove(list(selected_quote))
+        return selected_quote[0]
+
+    def _select_best_quote(self, possible_quotes):
+        max_value = max(possible_quotes, key=lambda x: x[1])[1]
+        possible_quotes_max = list(filter(lambda x: x[1] == max_value, possible_quotes))
+        selected_quote = possible_quotes_max[0]
+        i = 0
+        while selected_quote[0] in self.used_quotes:
+            i += 1
+            if i < len(possible_quotes):
+                selected_quote = possible_quotes[i]
             else:
-                if any((len(k) > 1 for k in results.values())):
-                    results = {k: v for k, v in results.items() if len(v) > 1}
-                possible_quotes = []
-                for result in results.keys():
-                    try:
-                        possible_quotes.append([quotes[result], result])
-                    except IndexError:
-                        pass
-                for possible_quote in possible_quotes:
-                    possible_quote[1] = evaluate_quote(possible_quote[1], line, tf_idf)
-                if randomized:
-                    selected_quote = [""]
-                    while selected_quote[0] in used_quotes:
-                        selected_quote = weighted_draw(possible_quotes)
-                else:
-                    max_value = max(possible_quotes, key=lambda x: x[1])[1]
-                    possible_quotes_max = list(filter(lambda x: x[1] == max_value, possible_quotes))
-                    selected_quote = possible_quotes_max[0]
-                    i = 0
-                    while selected_quote[0] in used_quotes:
-                        i += 1
-                        if i < len(possible_quotes):
-                            selected_quote = possible_quotes[i]
-                        else:
-                            selected_quote = possible_quotes[0]
-                            break
-                print(selected_quote[0])
-                used_quotes.append(selected_quote[0])
-    except KeyboardInterrupt:
-        return
-    except EOFError:
-        return
+                selected_quote = possible_quotes[0]
+                break
+        return selected_quote[0]
+
+    def evaluate_quote(self, quote_idx, question):
+        total_score = 0
+        for possible_words in question:
+            max_word_score = 0
+            for base_word in possible_words:
+                try:
+                    base_word_score = self.tf_idf[quote_idx][base_word]
+                except KeyError:
+                    base_word_score = 0
+                max_word_score = max(max_word_score, base_word_score)
+            total_score += max_word_score
+        return [total_score]
 
 
 if __name__ == "__main__":
-    mcr()
+    MCR().run()

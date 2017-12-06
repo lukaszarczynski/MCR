@@ -1,9 +1,9 @@
 from tokenization import tokenize
 
 
-def load_list_of_dialogues_from_file(document_path, *,
-                                     do_tokenization=True,
-                                     remove_authors=False):
+def load_dialogues_from_file(document_path, *,
+                             do_tokenization=True,
+                             remove_authors=False):
     with open(document_path) as file:
         lines = file.readlines()
         dialogues_list = [line for line in lines if not line.startswith("#")]
@@ -19,14 +19,14 @@ def load_list_of_dialogues_from_file(document_path, *,
 
 
 if __name__ == "__main__":
-    dialogues = load_list_of_dialogues_from_file("data/drama_quotes_longer.txt")
+    dialogues = load_dialogues_from_file("data/drama_quotes_longer.txt")
     print(dialogues[:10])
-    dialogues = load_list_of_dialogues_from_file("data/drama_quotes_longer.txt",
-                                                 do_tokenization=False)
+    dialogues = load_dialogues_from_file("data/drama_quotes_longer.txt",
+                                         do_tokenization=False)
     print(dialogues[:10])
-    dialogues = load_list_of_dialogues_from_file("data/drama_quotes_longer.txt",
-                                                 remove_authors=True)
+    dialogues = load_dialogues_from_file("data/drama_quotes_longer.txt",
+                                         remove_authors=True)
     print(dialogues[:10])
-    dialogues = load_list_of_dialogues_from_file("data/drama_quotes_longer.txt",
-                                                 do_tokenization=False, remove_authors=True)
+    dialogues = load_dialogues_from_file("data/drama_quotes_longer.txt",
+                                         do_tokenization=False, remove_authors=True)
     print(dialogues[:10])

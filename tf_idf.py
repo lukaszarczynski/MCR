@@ -3,7 +3,7 @@ from collections import defaultdict
 from math import log
 from os.path import isfile
 
-from dialogue_load import load_list_of_dialogues_from_file
+from dialogue_load import load_dialogues_from_file
 from morphosyntactic import Morphosyntactic
 from tokenization import tokenize
 
@@ -20,7 +20,7 @@ class TF_IDF:
 
     def get_dialogues_list(self):
         if self.dialogues_list is None:
-            self.dialogues_list = load_list_of_dialogues_from_file(self.document_path, remove_authors=True)
+            self.dialogues_list = load_dialogues_from_file(self.document_path, remove_authors=True)
         return self.dialogues_list
 
     def save(self):
