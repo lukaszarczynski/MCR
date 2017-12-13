@@ -164,6 +164,7 @@ class MCR:
 
     def _select_best_quote(self, possible_quotes):
         max_value = max(possible_quotes, key=lambda x: x[1])[1]
+        possible_quotes.sort(key=lambda x: x[1], reverse=True)
         possible_quotes_max = list(filter(lambda x: x[1] == max_value, possible_quotes))
         selected_quote = possible_quotes_max[0]
         i = 0
@@ -172,8 +173,7 @@ class MCR:
             if i < len(possible_quotes):
                 selected_quote = possible_quotes[i]
             else:
-                selected_quote = possible_quotes[0]
-                break
+                return self.default_quote
         return selected_quote[0]
 
     def evaluate_quote(self, quote, question, choose_answer=False):
@@ -235,4 +235,4 @@ class WordVector:
 
 
 if __name__ == "__main__":
-    MCR().run()
+    MCR().run(randomized=False)
