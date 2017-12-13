@@ -18,6 +18,11 @@ def load_dialogues_from_file(document_path, *,
     return dialogues_list
 
 
+def split_dialogue(dialogue):
+    dialogue_list = ([line.split(":")[-1] for line in dialogue.split("\n")])
+    return dialogue_list
+
+
 if __name__ == "__main__":
     dialogues = load_dialogues_from_file("data/drama_quotes_longer.txt")
     print(dialogues[:10])
