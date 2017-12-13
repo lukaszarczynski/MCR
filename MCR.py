@@ -3,7 +3,7 @@ from collections import defaultdict
 from typing import List, Dict, Set
 
 from tf_idf import TF_IDF
-from tokenization import tokenize
+from tokenization import tokenize, tokenize_dialogue
 import morphosyntactic as morph
 from dialogue_load import load_dialogues_from_file
 from reverse_index_serialization import load_reverse_index, reverse_index_created, store_reverse_index, IndexType
@@ -136,7 +136,7 @@ class MCR:
 
         possible_quotes = self._get_quotes_from_indices(results)
         for possible_quote in possible_quotes:
-            possible_quote[1] = self.evaluate_quote(possible_quote[1], line)[0]  # TODO: Select best quote
+            possible_quote[1] = self.evaluate_quote(possible_quote, line)  # TODO: Select best quote
 
         if self.randomized:
             selected_quote = self._select_randomized_quote(possible_quotes)
@@ -176,18 +176,50 @@ class MCR:
                 break
         return selected_quote[0]
 
-    def evaluate_quote(self, quote_idx, question):
-        total_score = 0
-        for possible_words in question:
-            max_word_score = 0
+    def evaluate_quote(self, quote, question):
+        def score_function(word):
+            try:
+                word_score = self.tf_idf[quote_idx][word]
+            except KeyError:
+                word_score = 0
+            return word_score
+
+        quote_idx = quote[1]
+        quote_text = tokenize_dialogue(quote[0])
+        for dialogue_idx, dialogue in enumerate(quote_text):
+            quote_text[dialogue_idx] = [self.morphosyntactic.get_dictionary().get(token, []) for token in dialogue]
+        quote_text = [item for sublist in quote_text for item in sublist]  # TODO: delet (flattens list)
+
+        quote_vector = WordVector(quote_text, score_function)
+        question_vector = WordVector(question, score_function)
+
+        cosine = (question_vector @ question_vector) / (quote_vector.len() * question_vector.len())
+
+        return cosine
+
+
+class WordVector:
+    def __init__(self, quote, score_function):
+        self.vector = defaultdict(lambda: 0)
+        for possible_words in quote:
             for base_word in possible_words:
-                try:
-                    base_word_score = self.tf_idf[quote_idx][base_word]
-                except KeyError:
-                    base_word_score = 0
-                max_word_score = max(max_word_score, base_word_score)
-            total_score += max_word_score
-        return [total_score]
+                base_word_score = score_function(base_word)
+                self.vector[base_word] = base_word_score
+
+    def len(self):
+        length = 0
+        for value in self.vector.values():
+            length += value ** 2
+        return length
+
+    def __getitem__(self, item):
+        return self.vector[item]
+
+    def __matmul__(self, other):
+        dot_product = 0
+        for word in set.union(set(self.vector.keys()), set(other.vector.keys())):
+            dot_product += self[word] * other[word]
+        return dot_product
 
 
 if __name__ == "__main__":
